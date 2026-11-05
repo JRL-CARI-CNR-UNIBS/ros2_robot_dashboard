@@ -1,0 +1,42 @@
+# Example launch profiles. Copy this file to ~/.ros/robot_dashboard/launch_profiles/
+# and adapt it: profiles there override the examples with the same id.
+profiles:
+  - id: ur_mock_cell
+    name: UR cell (mock hardware)
+    description: UR driver with mock hardware, controllers and robot_state_publisher
+    command: ros2 launch ur_robot_driver ur_control.launch.py
+    args:
+      - name: ur_type
+        type: choice
+        choices: [ur3, ur3e, ur5, ur5e, ur10, ur10e, ur16e, ur20, ur30]
+        default: ur5e
+        description: Type/series of the UR robot
+      - name: robot_ip
+        type: string
+        default: "192.168.56.101"
+        description: Robot IP (not used with mock hardware)
+      - name: use_mock_hardware
+        type: bool
+        default: true
+        description: Use mock hardware (Jazzy and newer)
+      - name: use_fake_hardware
+        type: bool
+        default: true
+        description: Use mock hardware (Humble name of the same option)
+      - name: launch_rviz
+        type: bool
+        default: false
+        description: Start RViz
+    presets:
+      - name: UR5e mock, no RViz
+        values: { ur_type: ur5e, use_mock_hardware: true, launch_rviz: false }
+      - name: UR10e mock with RViz
+        values: { ur_type: ur10e, use_mock_hardware: true, launch_rviz: true }
+    stop:
+      sigint_timeout_s: 10
+      sigterm_timeout_s: 5
+
+  - id: demo_talker
+    name: Demo talker
+    description: demo_nodes_cpp talker (simple test process)
+    command: ros2 run demo_nodes_cpp talker

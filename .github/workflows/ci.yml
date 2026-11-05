@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          environments: jazzy
+      - run: pixi run -e jazzy lint
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [humble, jazzy, lyrical]
+    env:
+      QT_QPA_PLATFORM: offscreen
+      # Separate DDS domain per job: jobs on the same runner must not see each other.
+      ROS_DOMAIN_ID: ${{ strategy.job-index == 0 && '11' || strategy.job-index == 1 && '12' || '13' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries for Qt (offscreen)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          environments: ${{ matrix.distro }}
+      - run: pixi run -e ${{ matrix.distro }} test

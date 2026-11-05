@@ -1,0 +1,8 @@
+.pixi/
+build/
+install/
+log/
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/

@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>ros2_robot_dashboard</name>
+  <version>0.1.0</version>
+  <description>Robot-agnostic ROS 2 dashboard (PySide6): parameters, topics, services and actions, graph, TF, robot state, ros2_control, diagnostics and logs, launch manager, bags, system health.</description>
+  <maintainer email="manuel.beschi@unibs.it">Manuel Beschi</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>rosidl_runtime_py</exec_depend>
+  <exec_depend>rosidl_parser</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>builtin_interfaces</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>tf2_msgs</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>controller_manager_msgs</exec_depend>
+  <exec_depend>rosbag2_interfaces</exec_depend>
+  <exec_depend>ros2bag</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>rosbag2_py</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-psutil</exec_depend>
+  <exec_depend>graphviz</exec_depend>
+  <!-- PySide6 and pyqtgraph are not reliably available through rosdep on every
+       distro: install them with pip/conda (see README). -->
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

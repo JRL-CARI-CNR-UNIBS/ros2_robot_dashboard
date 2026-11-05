@@ -1,0 +1,68 @@
+# Development and CI environments for ros2_robot_dashboard (RoboStack, no system ROS needed).
+#   pixi run -e jazzy test        # unit + ROS + Qt tests (offscreen)
+#   pixi run -e humble dashboard  # start the dashboard from the source tree
+[workspace]
+name = "ros2_robot_dashboard"
+channels = ["https://prefix.dev/conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+pyside6 = ">=6.8,<7"
+pyqtgraph = ">=0.13"
+psutil = "*"
+pyyaml = "*"
+graphviz = "*"
+pytest = "*"
+pytest-qt = "*"
+pytest-timeout = "*"
+flake8 = "*"
+
+[tasks]
+test = { cmd = "python -m pytest -p no:launch_testing -p no:launch_ros -p no:cacheprovider test -q --timeout 120", env = { QT_QPA_PLATFORM = "offscreen", ROS_AUTOMATIC_DISCOVERY_RANGE = "LOCALHOST", ROS_LOCALHOST_ONLY = "1" } }
+lint = "flake8 --select=E,W,F ros2_robot_dashboard test tools"
+dashboard = "python -m ros2_robot_dashboard.main"
+
+[feature.humble]
+channels = ["https://prefix.dev/robostack-humble"]
+[feature.humble.dependencies]
+python = "3.11.*"
+ros-humble-ros-base = "*"
+ros-humble-tf2-ros-py = "*"
+ros-humble-rosbag2-py = "*"
+ros-humble-rosbag2-storage-mcap = "*"
+ros-humble-ros2bag = "*"
+ros-humble-diagnostic-msgs = "*"
+ros-humble-lifecycle-msgs = "*"
+ros-humble-controller-manager-msgs = "*"
+ros-humble-example-interfaces = "*"
+
+[feature.jazzy]
+channels = ["https://prefix.dev/robostack-jazzy"]
+[feature.jazzy.dependencies]
+ros-jazzy-ros-base = "*"
+ros-jazzy-tf2-ros-py = "*"
+ros-jazzy-rosbag2-py = "*"
+ros-jazzy-rosbag2-storage-mcap = "*"
+ros-jazzy-ros2bag = "*"
+ros-jazzy-diagnostic-msgs = "*"
+ros-jazzy-lifecycle-msgs = "*"
+ros-jazzy-controller-manager-msgs = "*"
+ros-jazzy-example-interfaces = "*"
+
+[feature.lyrical]
+channels = ["https://prefix.dev/robostack-lyrical"]
+[feature.lyrical.dependencies]
+ros-lyrical-ros-base = "*"
+ros-lyrical-tf2-ros-py = "*"
+ros-lyrical-rosbag2-py = "*"
+ros-lyrical-rosbag2-storage-mcap = "*"
+ros-lyrical-ros2bag = "*"
+ros-lyrical-diagnostic-msgs = "*"
+ros-lyrical-lifecycle-msgs = "*"
+ros-lyrical-controller-manager-msgs = "*"
+ros-lyrical-example-interfaces = "*"
+
+[environments]
+humble = { features = ["humble"], solve-group = "humble" }
+jazzy = { features = ["jazzy"], solve-group = "jazzy" }
+lyrical = { features = ["lyrical"], solve-group = "lyrical" }

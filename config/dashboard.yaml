@@ -1,0 +1,45 @@
+# Default settings of ros2_robot_dashboard.
+# Override them in ~/.ros/robot_dashboard/dashboard.yaml (only the keys you change)
+# or with --config <file>.
+read_only: false
+confirm_actions: true
+
+timeouts:
+  service_s: 2.0
+  switch_controller_s: 5.0
+
+polling:
+  graph_s: 1.5
+  controllers_s: 1.0
+
+topics:
+  echo_max_rate_hz: 15.0
+  echo_truncate_length: 64
+  terminal_max_lines: 5000
+
+params:
+  auto_apply: true
+  atomic_apply: false
+  # Parameters needing a double confirmation, "node:param" with glob patterns.
+  critical: []
+
+robot:
+  joint_states_topic: /joint_states
+  robot_description_topic: /robot_description
+  robot_description_node: /robot_state_publisher
+
+bag:
+  default_dir: ~/bags
+
+health:
+  default_profile: ''
+
+core:
+  # ROS executor of the dashboard node. "single" keeps up with 500 Hz topics;
+  # rclpy's MultiThreadedExecutor ("multi") is about 20x slower in Python.
+  executor: single
+
+qt:
+  # Private fontconfig cache inside conda/pixi environments (avoids a crash when the
+  # system and the environment use different fontconfig versions): auto | on | off
+  private_font_cache: auto

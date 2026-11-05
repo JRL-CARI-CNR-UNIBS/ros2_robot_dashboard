@@ -1,0 +1,18 @@
+# Critical topics checked by the Health page.
+# Copy to ~/.ros/robot_dashboard/health_profiles/ and adapt.
+profiles:
+  - id: ros2_control_cell
+    name: ros2_control cell
+    topics:
+      - topic: /joint_states
+        expected_hz: 100
+        tolerance: 0.2
+        timeout_s: 1.0
+      - topic: /tf
+        expected_hz: 50
+        tolerance: 0.5
+        timeout_s: 2.0
+      - topic: /diagnostics
+        expected_hz: 1
+        tolerance: 0.8
+        timeout_s: 5.0
