@@ -40,6 +40,9 @@ class LaunchArg(Serializable):
     choices: tuple[str, ...] = ()
     enabled_if: str = ''           # expression over other args, e.g. "not sim"
     required: bool = False
+    # Not passed on the command line unless the user enables it: the launch file
+    # then uses its own default.
+    use_default: bool = False
 
     def format_value(self, value: Any) -> str:
         if self.type == ArgType.BOOL:
@@ -135,14 +138,23 @@ def _as_bool(value: Any) -> bool:
 
 
 def compose_launch_command(profile: ProcessProfile, values: dict) -> list[str]:
-    """Return argv: ``command`` split with shlex plus ``name:=value`` for enabled args."""
+    """Return argv: ``command`` split with shlex plus ``name:=value`` for passed args.
+
+    ``values`` overrides the profile defaults; a value of ``None`` means "not passed"
+    (the launch file uses its own default). Arguments with ``use_default`` are passed
+    only when ``values`` gives them a value.
+    """
     from ..processes.launch_args import evaluate_condition
 
     argv = shlex.split(profile.command)
-    merged = profile.default_values()
-    merged.update(values or {})
+    values = values or {}
+    # Values seen by enabled_if conditions: what the launch file will use.
+    shown = profile.default_values()
+    shown.update({k: v for k, v in values.items() if v is not None})
+    merged = {a.name: a.default for a in profile.args if not a.use_default}
+    merged.update(values)
     for a in profile.args:
-        if a.enabled_if and not evaluate_condition(a.enabled_if, merged, profile):
+        if a.enabled_if and not evaluate_condition(a.enabled_if, shown, profile):
             continue
         v = merged.get(a.name)
         if v is None or (v == '' and a.type != ArgType.STRING):

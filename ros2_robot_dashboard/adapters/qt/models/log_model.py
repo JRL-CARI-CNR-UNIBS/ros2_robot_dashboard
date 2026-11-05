@@ -2,19 +2,43 @@
 
 from __future__ import annotations
 
+import datetime
 import time
 from typing import Callable, Optional
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PySide6.QtGui import QBrush
+from PySide6.QtGui import QBrush, QColor
 
 from ....core.domain.logs import LogLevel, LogRecord
 from .. import theme
 
-HEADERS = ['Time', 'Level', 'Node', 'Message']
+HEADERS = ['Time', 'Level', 'Logger', 'Message', 'Location', 'Function']
+COL_TIME, COL_LEVEL, COL_LOGGER, COL_MESSAGE, COL_LOCATION, COL_FUNCTION = range(6)
 LEVEL_COLOR = {LogLevel.DEBUG: 'stale', LogLevel.WARN: 'warn', LogLevel.ERROR: 'error',
                LogLevel.FATAL: 'error'}
 RecordRole = Qt.UserRole + 1
+
+# id -> label of the time formats
+TIME_FORMATS = [('time', 'Time of day'), ('datetime', 'Date and time'),
+                ('relative', 'Relative (s)'), ('stamp', 'ROS stamp (s)')]
+
+
+def format_stamp(stamp: float, mode: str, origin: float = 0.0) -> str:
+    if mode == 'datetime':
+        return datetime.datetime.fromtimestamp(stamp).isoformat(sep=' ', timespec='milliseconds')
+    if mode == 'relative':
+        return f'{stamp - origin:+.3f}'
+    if mode == 'stamp':
+        return f'{stamp:.6f}'
+    return time.strftime('%H:%M:%S', time.localtime(stamp)) + f'.{int((stamp % 1) * 1000):03d}'
+
+
+def record_text(r: LogRecord, mode: str = 'datetime', extended: bool = False) -> str:
+    """One line per record, as copied to the clipboard."""
+    text = f'{format_stamp(r.stamp, mode)} [{r.level.name}] [{r.logger_name}] {r.message}'
+    if extended and r.file:
+        text += f'  ({r.file}:{r.line} in {r.function})'
+    return text
 
 
 class LogTableModel(QAbstractTableModel):
@@ -23,12 +47,16 @@ class LogTableModel(QAbstractTableModel):
         self.max_rows = max_rows
         self.rows: list[LogRecord] = []
         self.accept: Optional[Callable[[LogRecord], bool]] = None
+        self.time_mode = 'time'
+        self.origin = 0.0                       # for relative times
+        self.logger_colors: dict[str, QColor] = {}
+        self.colorize = True
 
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self.rows)
 
     def columnCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() else 4
+        return 0 if parent.isValid() else len(HEADERS)
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
@@ -41,22 +69,46 @@ class LogTableModel(QAbstractTableModel):
         r = self.rows[index.row()]
         c = index.column()
         if role == Qt.DisplayRole:
-            if c == 0:
-                return time.strftime('%H:%M:%S', time.localtime(r.stamp)) + \
-                    f'.{int((r.stamp % 1) * 1000):03d}'
-            if c == 1:
+            if c == COL_TIME:
+                return format_stamp(r.stamp, self.time_mode, self.origin)
+            if c == COL_LEVEL:
                 return r.level.name
-            if c == 2:
-                return r.node
-            return r.message.replace('\n', ' ⏎ ')
-        if role == Qt.ForegroundRole and r.level in LEVEL_COLOR:
+            if c == COL_LOGGER:
+                return r.logger_name
+            if c == COL_MESSAGE:
+                return r.message.replace('\n', ' ⏎ ')
+            if c == COL_LOCATION:
+                return f'{r.file.rsplit("/", 1)[-1]}:{r.line}' if r.file else ''
+            return r.function
+        if role == Qt.ForegroundRole and self.colorize and r.level in LEVEL_COLOR:
             return QBrush(theme.color(LEVEL_COLOR[r.level]))
-        if role == Qt.ToolTipRole and c == 3:
+        if role == Qt.BackgroundRole and self.logger_colors:
+            color = self._logger_color(r.logger_name)
+            if color is not None:
+                return QBrush(color)
+        if role == Qt.ToolTipRole and c == COL_LOCATION and r.file:
+            return f'{r.file}:{r.line}\n{r.function}'
+        if role == Qt.ToolTipRole and c == COL_MESSAGE:
             loc = f'\n{r.file}:{r.line} ({r.function})' if r.file else ''
             return r.message + loc
         if role == RecordRole:
             return r
         return None
+
+    def _logger_color(self, logger: str) -> Optional[QColor]:
+        # The most specific colored ancestor wins.
+        name = logger
+        while name:
+            c = self.logger_colors.get(name)
+            if c is not None:
+                return c
+            name = name.rpartition('.')[0]
+        return None
+
+    def refresh_display(self) -> None:
+        if self.rows:
+            self.dataChanged.emit(self.index(0, 0),
+                                  self.index(len(self.rows) - 1, len(HEADERS) - 1))
 
     def set_records(self, records) -> None:
         self.beginResetModel()

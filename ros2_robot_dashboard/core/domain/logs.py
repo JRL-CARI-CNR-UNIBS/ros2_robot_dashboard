@@ -39,10 +39,36 @@ class LogRecord(Serializable):
     file: str = ''
     function: str = ''
     line: int = 0
+    logger: str = ''             # as published, e.g. "controller_manager.resource_manager"
 
     @property
     def location(self) -> str:
         return f'{self.file}:{self.line}' if self.file else ''
+
+    @property
+    def logger_name(self) -> str:
+        """Dotted logger name (derived from ``node`` for records without one)."""
+        return self.logger or self.node.strip('/').replace('/', '.')
+
+
+def logger_path(logger: str) -> str:
+    """``ns.node.child`` -> ``/ns/node/child`` (to match node names)."""
+    return logger if logger.startswith('/') else '/' + logger.replace('.', '/')
+
+
+def owner_node(logger: str, nodes) -> str:
+    """Node owning a logger: longest node name that prefixes the logger path ('' if none)."""
+    path = logger_path(logger)
+    best = ''
+    for n in nodes:
+        if (path == n or path.startswith(n.rstrip('/') + '/')) and len(n) > len(best):
+            best = n
+    return best
+
+
+def logger_matches(logger: str, selected) -> bool:
+    """True if ``logger`` is one of ``selected`` or a child of one of them."""
+    return any(logger == s or logger.startswith(s + '.') for s in selected)
 
 
 class DiagLevel(enum.IntEnum):

@@ -104,8 +104,9 @@ def main() -> int:
     values['ur_type'] = 'ur5e'
     values['launch_rviz'] = False
     # Humble uses use_fake_hardware, newer distros use_mock_hardware.
-    values['use_mock_hardware'] = distro != 'humble'
-    values['use_fake_hardware'] = distro == 'humble'
+    # Pass only the option the distro knows (the other one stays unticked).
+    values['use_mock_hardware'] = None if distro == 'humble' else True
+    values['use_fake_hardware'] = True if distro == 'humble' else None
     launch.form.set_values(values)
     launch._update_preview()
     launch._start()
@@ -185,7 +186,17 @@ def main() -> int:
     tf._start_echo()
     wait(lambda: 'translation' in tf.out.toPlainText(), 10, 'tf echo base_link <- tool0')
     ok('TF echo base_link <- tool0')
+    tf.tabs.setCurrentIndex(0)
+    wait(lambda: {'base_link', 'tool0'} <= set(tf.graph.boxes), 10, 'TF graph drawn')
+    tf.graph.select('tool0')
+    tf.graph.fit()
+    spin(0.5)
+    ok(f'TF graph with {len(tf.graph.boxes)} frames')
     shot('tf')
+    tf.tabs.setCurrentIndex(1)
+    spin(0.3)
+    shot('tf_tree')
+    tf.tabs.setCurrentIndex(0)
     tf._stop_echo()
 
     # ------------------------------------------------------------- robot
@@ -234,7 +245,37 @@ def main() -> int:
     diag = w.page('diagnostics')
     w.navigate('diagnostics')
     wait(lambda: diag.logs.model.rows, 10, 'logs')
-    shot('logs')
+    logs_tab = diag.logs
+    wait(lambda: len(logs_tab.tree.items) > 3, 10, 'logger tree')
+    with_service = sorted(n.fqn for n in rt.graph.snapshot().nodes
+                          if not rt.logs.level_service_problem(n.fqn))
+    print(f'info nodes with logger services: {with_service or "none"}', flush=True)
+    ok(f'logger tree with {len(logs_tab.tree.items)} loggers')
+    logs_tab.col_location.setChecked(True)
+    if 'controller_manager' in logs_tab.tree.items:
+        logs_tab.select_loggers(['controller_manager'])
+        spin(0.5)
+    if '/controller_manager' in with_service:
+        from ros2_robot_dashboard.core.domain.logs import LogLevel
+        logs_tab.levels[LogLevel.DEBUG].setChecked(True)
+        mark = max((r.seq for r in rt.logs.records()), default=0)
+        logs_tab.set_level(['controller_manager'], LogLevel.DEBUG)
+        if wait(lambda: any(r.seq > mark and r.level == LogLevel.DEBUG
+                            and r.logger_name.startswith('controller_manager')
+                            for r in rt.logs.records()), 10, 'controller_manager DEBUG logs'):
+            ok('controller_manager logger set to DEBUG from the Logs tab')
+        wait(lambda: logs_tab.tree.levels.get('controller_manager') == LogLevel.DEBUG, 5,
+             'level column shows DEBUG')
+        spin(1.0)
+        shot('logs')
+        logs_tab.set_level(['controller_manager'], LogLevel.INFO)
+        wait(lambda: logs_tab.tree.levels.get('controller_manager') == LogLevel.INFO, 5,
+             'level back to INFO')
+        logs_tab.levels[LogLevel.DEBUG].setChecked(False)
+    else:
+        shot('logs')
+    logs_tab.tree.clearSelection()
+    logs_tab.col_location.setChecked(False)
 
     # ------------------------------------------------------------- bags
     bags = w.page('bags')

@@ -161,6 +161,39 @@ def test_parse_show_args():
     assert args['robot_ip'].required and args['robot_ip'].default is None
     assert args['launch_rviz'].type == ArgType.BOOL and args['launch_rviz'].default is True
     assert args['controller_file'].default.startswith('LocalVar')
+    # Substitution defaults are not passed: the launch file computes them.
+    assert args['controller_file'].use_default and not args['launch_rviz'].use_default
+
+
+def test_use_default_args_are_not_passed():
+    from ros2_robot_dashboard.core.services.launch_service import parse_profiles_yaml
+    text = '''
+profiles:
+  - id: cell
+    command: ros2 launch cell cell.launch.py
+    args:
+      - {name: sim, type: bool, default: true}
+      - {name: robot_ip, type: string, default: "10.0.0.1", use_default: true}
+      - {name: rate, type: int, default: 100, use_default: true, enabled_if: "not sim"}
+'''
+    profiles, _scen, errors = parse_profiles_yaml(text)
+    assert not errors
+    p = profiles[0]
+    assert p.arg('robot_ip').use_default
+    base = ['ros2', 'launch', 'cell', 'cell.launch.py']
+    assert compose_launch_command(p, {}) == base + ['sim:=true']
+    # Given a value (ticked in the form or in a preset): passed.
+    assert compose_launch_command(p, {'robot_ip': '10.0.0.2'}) == base + [
+        'sim:=true', 'robot_ip:=10.0.0.2']
+    # None: not passed, even for a normal argument.
+    assert compose_launch_command(p, {'sim': None}) == base
+    # enabled_if sees the value the launch file will use (default true -> rate disabled).
+    assert compose_launch_command(p, {'sim': None, 'rate': 5}) == base
+    cmd = compose_launch_command(p, {'sim': False, 'rate': 5})
+    assert cmd == base + ['sim:=false', 'rate:=5']
+    from ros2_robot_dashboard.core.services.launch_service import profile_to_dict
+    d = profile_to_dict(p)
+    assert d['args'][1]['use_default'] is True and 'use_default' not in d['args'][0]
 
 
 def test_conditions_and_command():

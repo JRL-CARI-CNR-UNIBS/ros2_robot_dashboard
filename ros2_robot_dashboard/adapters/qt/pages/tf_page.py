@@ -6,14 +6,15 @@ import time
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QBrush
-from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QGroupBox, QHBoxLayout, QLabel,
-                               QPlainTextEdit, QSplitter, QTreeWidget, QTreeWidgetItem,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFileDialog, QGroupBox, QHBoxLayout,
+                               QLabel, QMenu, QPlainTextEdit, QSplitter, QTabWidget, QTreeWidget,
+                               QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ....core.domain.events import TfTreeChanged, TransformSampleEvent
 from ....core.domain.tf import RotationFormat, TfTreeSnapshot, TransformSample, format_rotation
 from .. import theme
 from ..widgets.common import FilterEdit, button, copy_to_clipboard, fmt_age, fmt_hz
+from ..widgets.tf_graph import TfGraphView
 from .base_page import BasePage
 
 FORMAT_LABELS = [
@@ -59,6 +60,30 @@ class TfPage(BasePage):
         self.tree.itemClicked.connect(self._frame_clicked)
         self.filter = FilterEdit('Filter frames…')
         self.filter.textChanged.connect(lambda _t: self._fill())
+        self.filter.returnPressed.connect(self._find_in_graph)
+        self.graph = TfGraphView()
+        self.graph.frame_clicked.connect(self._graph_clicked)
+        self.graph.frame_double_clicked.connect(self._echo_from_parent)
+        self.graph.frame_menu.connect(self._frame_menu)
+        fit = button('Fit', self.graph.fit, 'Fit the whole tree in the view')
+        export = button('Export…', self._export, 'Save the tree as PNG, SVG or DOT')
+        graph_box = QWidget()
+        gl = QVBoxLayout(graph_box)
+        gl.setContentsMargins(0, 0, 0, 0)
+        gl.addWidget(self.graph, 1)
+        grow = QHBoxLayout()
+        hint = QLabel('Click: source frame · double-click: echo from its parent · '
+                      'right-click: more · wheel: zoom')
+        hint.setObjectName('hint')
+        grow.addWidget(hint, 1)
+        grow.addWidget(fit)
+        grow.addWidget(export)
+        gl.addLayout(grow)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(graph_box, 'Graph')
+        self.tabs.addTab(self.tree, 'Tree')
+        self.tabs.setCurrentIndex(int(self.setting('view_tab', 0) or 0))
+        self.tabs.currentChanged.connect(lambda i: self.set_setting('view_tab', i))
         self.issues = QLabel('')
         self.issues.setWordWrap(True)
         self.count = QLabel('')
@@ -71,7 +96,7 @@ class TfPage(BasePage):
         row.addWidget(self.filter, 1)
         row.addWidget(clear)
         ll.addLayout(row)
-        ll.addWidget(self.tree, 1)
+        ll.addWidget(self.tabs, 1)
         ll.addWidget(self.issues)
         ll.addWidget(self.count)
 
@@ -120,7 +145,7 @@ class TfPage(BasePage):
         split = QSplitter()
         split.addWidget(left)
         split.addWidget(box)
-        split.setSizes([650, 650])
+        split.setSizes([800, 500])
         lay = QVBoxLayout(self)
         lay.addWidget(split)
         self._age_timer = QTimer(self)
@@ -207,6 +232,7 @@ class TfPage(BasePage):
             add(self.tree, r)
         self.tree.expandAll()
         del expanded
+        self.graph.set_snapshot(snap)
         if snap.issues:
             c = theme.color('error').name()
             self.issues.setText(f'<span style="color:{c}"><b>Problems</b></span><br>' +
@@ -217,6 +243,62 @@ class TfPage(BasePage):
         n_static = sum(1 for f in snap.frames if f.is_static)
         self.count.setText(f'{len(snap.frames)} frames ({n_static} static), '
                            f'{len(roots)} root(s)')
+
+    # ----------------------------------------------------------------- graph
+
+    def _graph_clicked(self, name: str) -> None:
+        self.source.setEditText(name)
+        if self._echo_id:
+            self.svc.update_echo(self._echo_id, self.target.currentText(), name)
+
+    def _parent_of(self, name: str) -> str:
+        for f in self._snap.frames:
+            if f.name == name:
+                return f.parent
+        return ''
+
+    def _echo_from_parent(self, name: str) -> None:
+        parent = self._parent_of(name)
+        if not parent:
+            self.message(f'{name} is a root frame')
+            return
+        self.target.setEditText(parent)
+        self.source.setEditText(name)
+        self._start_echo()
+
+    def _frame_menu(self, name: str, global_pos) -> None:
+        menu = QMenu(self)
+        menu.addAction(f'Set "{name}" as target', lambda: self.target.setEditText(name))
+        menu.addAction(f'Set "{name}" as source', lambda: self._graph_clicked(name))
+        parent = self._parent_of(name)
+        if parent:
+            menu.addAction(f'Echo {parent} <- {name}', lambda: self._echo_from_parent(name))
+        if self.target.currentText().strip() and self.target.currentText() != name:
+            t = self.target.currentText().strip()
+            menu.addAction(f'Echo {t} <- {name}',
+                           lambda: (self.source.setEditText(name), self._start_echo()))
+        menu.addSeparator()
+        menu.addAction('Copy name', lambda: copy_to_clipboard(name))
+        menu.exec(global_pos)
+
+    def _find_in_graph(self) -> None:
+        text = self.filter.text().strip().lower()
+        for n in sorted(self.graph.boxes):
+            if text and text in n.lower():
+                self.graph.select(n)
+                return
+
+    def _export(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, 'Export TF tree', 'tf_tree.png',
+                                              'PNG image (*.png);;SVG (*.svg);;DOT (*.dot)')
+        if not path:
+            return
+        try:
+            self.graph.export(path)
+        except Exception as exc:  # noqa: BLE001
+            self.error('Export', exc)
+            return
+        self.message(f'TF tree exported to {path}')
 
     def _frame_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         self.source.setEditText(item.text(0))

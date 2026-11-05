@@ -17,11 +17,11 @@ Tested on **Humble**, **Jazzy** and **Lyrical** (RoboStack/pixi and colcon works
 | Topics | Rates, bandwidth, publishers/subscribers with QoS and QoS-mismatch detection; rate-limited echo; record an echo to file |
 | Services / Actions | Call services and send action goals from a form generated from the interface definition (or YAML); see feedback and result; cancel goals |
 | Graph | Node/topic graph with filters (debug topics, hidden nodes, dead ends, isolated nodes, namespace, neighbours); Graphviz layout; export PNG/SVG/DOT |
-| TF | Frame tree with rates and problems (multiple parents or roots, loops, stale frames); `tf2_echo` with quaternion, RPY (rad/deg) or SE(3) output |
+| TF | Live graphical frame tree (like `view_frames`) and text tree, with rates and problems (multiple parents or roots, loops, stale frames); `tf2_echo` with quaternion, RPY (rad/deg) or SE(3) output |
 | Robot | Joint positions with limit bars; URDF summary; pose between any two frames |
 | Controllers | `ros2_control` controllers, hardware interfaces and components; activate/deactivate/switch with a preview of claimed interfaces and conflicts |
-| Diagnostics & logs | `/rosout` with level/node/regex filters; `/diagnostics` tree with history; lifecycle nodes and transitions |
-| Launch | Launch profiles with typed arguments and presets; start/stop/restart with clean shutdown (SIGINT → SIGTERM → SIGKILL) and leftover detection; multi-step scenarios |
+| Diagnostics & logs | `/rosout` console in the style of swri_console: logger tree with child loggers, change logger levels at runtime, severity and include/exclude filters, save/load (text, JSONL, rosbag2); `/diagnostics` tree with history; lifecycle nodes and transitions |
+| Launch | Launch profiles with typed arguments and presets, and arguments left to the launch file default; start/stop/restart with clean shutdown (SIGINT → SIGTERM → SIGKILL) and leftover detection; multi-step scenarios |
 | Bags | Record (topics, split, compression, storage) and play (rate, loop, clock, pause) |
 | Health | Critical topics against expected rates; CPU/memory/network of this PC and of robot PCs running `host_monitor`; discovery problems |
 | Utilities | Live plot of numeric fields; compare the parameters of two nodes, or of a node and a preset |

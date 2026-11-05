@@ -36,7 +36,8 @@ def parse_show_args(text: str) -> list[LaunchArg]:
             atype = ArgType.STRING
         args.append(LaunchArg(name=cur['name'], type=atype, default=default,
                               description=' '.join(cur['desc']).strip(), choices=choices,
-                              required='default' not in cur))
+                              required='default' not in cur,
+                              use_default=is_substitution(default)))
 
     for line in text.splitlines():
         m = _ARG_RE.match(line)
@@ -65,6 +66,19 @@ def parse_show_args(text: str) -> list[LaunchArg]:
         cur['desc'].append(s)
     flush()
     return args
+
+
+_SUBST_RE = re.compile(r'\b(LocalVar|LaunchConfig|PathJoinSubstitution|FindPackageShare|'
+                       r'PythonExpression|Command|EnvironmentVariable|ThisLaunchFileDir)\(')
+
+
+def is_substitution(default) -> bool:
+    """True for defaults that are launch substitutions, not literal values.
+
+    ``--show-args`` prints them as e.g. ``LocalVar('FindPackageShare(pkg='x') + ...')``:
+    passing that text would be wrong, so such arguments keep the launch file default.
+    """
+    return isinstance(default, str) and bool(_SUBST_RE.search(default))
 
 
 def _unquote(v: str) -> str:

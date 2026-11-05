@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import shlex
 import time
-from typing import Any, Optional
+from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
@@ -28,7 +28,12 @@ STATE_COLOR = {ProcessState.RUNNING: 'ok', ProcessState.STARTING: 'warn',
 
 
 class ArgsForm(QWidget):
-    """One widget per argument; ``enabled_if`` is re-evaluated at every change."""
+    """One row per argument: a "pass" checkbox with the name, and a value widget.
+
+    Unticked arguments are not passed, so the launch file uses its own default
+    (``use_default: true`` in the profile unticks them initially). ``enabled_if`` is
+    re-evaluated at every change.
+    """
 
     def __init__(self, on_change, parent=None):
         super().__init__(parent)
@@ -36,26 +41,38 @@ class ArgsForm(QWidget):
         self.form = QFormLayout(self)
         self.form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         self.widgets: dict[str, QWidget] = {}
+        self.passed: dict[str, QCheckBox] = {}
         self.profile: Optional[ProcessProfile] = None
 
     def set_profile(self, profile: Optional[ProcessProfile], values: dict) -> None:
         while self.form.rowCount():
             self.form.removeRow(0)
         self.widgets = {}
+        self.passed = {}
         self.profile = profile
         if profile is None:
             return
         if not profile.args:
             self.form.addRow(QLabel('This profile has no arguments.'))
+        else:
+            hint = QLabel('Unticked arguments are not passed: the launch file uses its default.')
+            hint.setObjectName('hint')
+            self.form.addRow(hint)
         for a in profile.args:
             w = self._make(a)
             self.widgets[a.name] = w
-            label = QLabel(a.name + (' *' if a.required else ''))
-            tip = a.description + (f'\nenabled if: {a.enabled_if}' if a.enabled_if else '')
-            label.setToolTip(tip)
+            cb = QCheckBox(a.name + (' *' if a.required else ''))
+            cb.toggled.connect(self._changed)
+            self.passed[a.name] = cb
+            default = '' if a.default is None else a.format_value(a.default)
+            tip = (a.description + (f'\nenabled if: {a.enabled_if}' if a.enabled_if else '') +
+                   f'\n\nTicked: passed as {a.name}:=<value>.\nUnticked: not passed, the '
+                   f'launch file uses its own default' + (f' ({default})' if default else '') +
+                   '.').strip()
+            cb.setToolTip(tip)
             w.setToolTip(tip)
-            self.form.addRow(label, w)
-        self.set_values({**profile.default_values(), **values})
+            self.form.addRow(cb, w)
+        self.set_values(values)
 
     def _make(self, a: LaunchArg) -> QWidget:
         if a.type == ArgType.BOOL:
@@ -82,11 +99,24 @@ class ArgsForm(QWidget):
         return w
 
     def set_values(self, values: dict) -> None:
+        """Show ``values`` (a preset); missing names get the profile default state.
+
+        A value of ``None`` means "not passed".
+        """
         if self.profile is None:
             return
         for a in self.profile.args:
             w = self.widgets[a.name]
-            v = values.get(a.name, a.default)
+            if a.name in values:
+                passed = values[a.name] is not None
+                v = values[a.name] if passed else a.default
+            else:
+                passed = not a.use_default
+                v = a.default
+            cb = self.passed[a.name]
+            cb.blockSignals(True)
+            cb.setChecked(passed)
+            cb.blockSignals(False)
             w.blockSignals(True)
             try:
                 v = a.parse(v) if v is not None else None
@@ -106,31 +136,42 @@ class ArgsForm(QWidget):
             w.blockSignals(False)
         self._update_enabled()
 
+    def _widget_value(self, w: QWidget):
+        if isinstance(w, QCheckBox):
+            return w.isChecked()
+        if isinstance(w, (QSpinBox, QDoubleSpinBox)):
+            return w.value()
+        if isinstance(w, QComboBox):
+            return w.currentText()
+        return w.text()
+
     def values(self) -> dict:
-        out: dict[str, Any] = {}
+        """Current values; ``None`` for arguments that are not passed."""
         if self.profile is None:
-            return out
-        for a in self.profile.args:
-            w = self.widgets[a.name]
-            if isinstance(w, QCheckBox):
-                out[a.name] = w.isChecked()
-            elif isinstance(w, QSpinBox):
-                out[a.name] = w.value()
-            elif isinstance(w, QDoubleSpinBox):
-                out[a.name] = w.value()
-            elif isinstance(w, QComboBox):
-                out[a.name] = w.currentText()
-            else:
-                out[a.name] = w.text()
-        return out
+            return {}
+        return {a.name: (self._widget_value(self.widgets[a.name])
+                         if self.passed[a.name].isChecked() else None)
+                for a in self.profile.args}
 
     def enabled_values(self) -> dict:
-        """Values of enabled arguments only (disabled ones are not passed)."""
+        """Like :meth:`values`, with ``None`` also for arguments disabled by ``enabled_if``."""
         vals = self.values()
         if self.profile is None:
             return vals
-        return {a.name: vals[a.name] for a in self.profile.args
-                if not a.enabled_if or evaluate_condition(a.enabled_if, vals, self.profile)}
+        shown = self._shown_values()
+        return {a.name: (vals[a.name] if not a.enabled_if or
+                         evaluate_condition(a.enabled_if, shown, self.profile) else None)
+                for a in self.profile.args}
+
+    def _shown_values(self) -> dict:
+        """Values the launch file will see (defaults for arguments not passed)."""
+        out = {}
+        for a in self.profile.args:
+            if self.passed[a.name].isChecked():
+                out[a.name] = self._widget_value(self.widgets[a.name])
+            else:
+                out[a.name] = a.default
+        return out
 
     def _changed(self, *_a) -> None:
         self._update_enabled()
@@ -139,13 +180,11 @@ class ArgsForm(QWidget):
     def _update_enabled(self) -> None:
         if self.profile is None:
             return
-        vals = self.values()
+        shown = self._shown_values()
         for a in self.profile.args:
-            on = not a.enabled_if or evaluate_condition(a.enabled_if, vals, self.profile)
-            self.widgets[a.name].setEnabled(on)
-            lbl = self.form.labelForField(self.widgets[a.name])
-            if lbl is not None:
-                lbl.setEnabled(on)
+            on = not a.enabled_if or evaluate_condition(a.enabled_if, shown, self.profile)
+            self.passed[a.name].setEnabled(on)
+            self.widgets[a.name].setEnabled(on and self.passed[a.name].isChecked())
 
 
 class NewProfileDialog(QDialog):
@@ -433,12 +472,12 @@ class LaunchPage(BasePage):
             return
         p = self.svc.profile(self.current)
         pr = p.presets[idx - 1]
-        self.form.set_values({**p.default_values(), **pr.values})
+        self.form.set_values(dict(pr.values))
         self._update_preview()
 
     def _defaults(self) -> None:
         if self.current:
-            self.form.set_values(self.svc.profile(self.current).default_values())
+            self.form.set_values({})
             self._update_preview()
 
     def _save_preset(self) -> None:

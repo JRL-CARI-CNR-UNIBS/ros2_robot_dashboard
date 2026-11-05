@@ -2,186 +2,24 @@
 
 from __future__ import annotations
 
-import os
-import re
 import time
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDialog,
-                               QHBoxLayout, QLabel, QMenu, QPlainTextEdit, QSplitter,
-                               QTableView, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QMenu, QPlainTextEdit,
+                               QSplitter, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
 
 from ....core.domain.events import DiagnosticsUpdated, LifecycleNodesChanged, LogRecordsBatch
-from ....core.domain.logs import DiagLevel, DiagnosticStatusInfo, LifecycleNodeInfo, LogLevel
+from ....core.domain.logs import DiagLevel, DiagnosticStatusInfo, LifecycleNodeInfo
 from .. import theme
-from ..models.log_model import LogTableModel, RecordRole
-from ..widgets.common import (CheckableComboBox, Column, FilterEdit, RowsModel, button,
-                              copy_to_clipboard, fmt_age, make_table)
+from ..widgets.common import Column, FilterEdit, RowsModel, button, fmt_age, make_table
 from .base_page import BasePage
+from .logs_console import LogsTab
 
 DIAG_COLOR = {DiagLevel.OK: 'ok', DiagLevel.WARN: 'warn', DiagLevel.ERROR: 'error',
               DiagLevel.STALE: 'stale'}
 LIFECYCLE_COLOR = {'active': 'ok', 'inactive': 'warn', 'unconfigured': 'stale',
                    'finalized': 'error'}
-
-
-class LogsTab(QWidget):
-    def __init__(self, page: 'DiagnosticsPage'):
-        super().__init__()
-        self.page = page
-        self.svc = page.rt.logs
-        self.model = LogTableModel(int(page.rt.config.get('logs.max_rows', 20000)), self)
-        self.model.accept = self._accept
-        self.view = QTableView()
-        self.view.setModel(self.model)
-        self.view.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.view.verticalHeader().setVisible(False)
-        self.view.verticalHeader().setDefaultSectionSize(20)
-        self.view.horizontalHeader().setStretchLastSection(True)
-        self.view.setColumnWidth(0, 100)
-        self.view.setColumnWidth(1, 60)
-        self.view.setColumnWidth(2, 240)
-        self.view.setWordWrap(False)
-        self.view.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.view.customContextMenuRequested.connect(self._menu)
-        self.view.selectionModel().currentRowChanged.connect(self._show_detail)
-        self.level = QComboBox()
-        for lv in LogLevel:
-            self.level.addItem(lv.name, lv)
-        self.level.setCurrentIndex(1)
-        self.level.currentIndexChanged.connect(self._refilter)
-        self.nodes = CheckableComboBox('All nodes')
-        self.nodes.setMinimumWidth(200)
-        self.nodes.selection_changed.connect(self._refilter)
-        self.text = FilterEdit('Search messages…')
-        self.text.textChanged.connect(self._refilter)
-        self.regex = QCheckBox('Regex')
-        self.regex.toggled.connect(self._refilter)
-        self.follow = QCheckBox('Follow')
-        self.follow.setChecked(True)
-        self.pause = QCheckBox('Pause')
-        self.pause.toggled.connect(lambda v: (not v) and self._refilter())
-        clear = button('Clear', self._clear)
-        export = button('Export…', self._export)
-        self.counts = QLabel('')
-        self.detail = QPlainTextEdit()
-        self.detail.setReadOnly(True)
-        self.detail.setObjectName('terminal')
-        self.detail.setMaximumHeight(110)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        row = QHBoxLayout()
-        for w in (QLabel('Min level'), self.level, self.nodes, self.text, self.regex,
-                  self.follow, self.pause, clear, export):
-            row.addWidget(w)
-        lay.addLayout(row)
-        lay.addWidget(self.view, 1)
-        lay.addWidget(self.detail)
-        lay.addWidget(self.counts)
-        self._pattern = None
-        self._known_nodes: set[str] = set()
-
-    def _accept(self, r) -> bool:
-        if r.level < self.level.currentData():
-            return False
-        sel = self.nodes.checked()
-        if sel and r.node not in sel:
-            return False
-        t = self.text.text()
-        if t:
-            if self._pattern is not None:
-                return bool(self._pattern.search(r.message))
-            return t.lower() in r.message.lower()
-        return True
-
-    def _refilter(self, *_a) -> None:
-        t = self.text.text()
-        self._pattern = None
-        if t and self.regex.isChecked():
-            try:
-                self._pattern = re.compile(t, re.IGNORECASE)
-                self.text.setStyleSheet('')
-            except re.error:
-                self.text.setStyleSheet(f'color: {theme.COLORS["error"]};')
-                return
-        self.model.set_records(self.svc.records())
-        self._update_nodes(self.svc.records())
-        self._scroll()
-        self._update_counts()
-
-    def on_batch(self, ev: LogRecordsBatch) -> None:
-        self._update_nodes(ev.records)
-        if self.pause.isChecked():
-            self._update_counts()
-            return
-        if self.model.append(ev.records):
-            self._scroll()
-        self._update_counts()
-
-    def _update_nodes(self, records) -> None:
-        new = {r.node for r in records} - self._known_nodes
-        if new:
-            self._known_nodes |= new
-            checked = self.nodes.checked()
-            self.nodes.set_items(sorted(self._known_nodes))
-            for i in range(self.nodes.model().rowCount()):
-                it = self.nodes.model().item(i)
-                if it.text() in checked:
-                    it.setCheckState(Qt.Checked)
-
-    def _scroll(self) -> None:
-        if self.follow.isChecked():
-            self.view.scrollToBottom()
-
-    def _update_counts(self) -> None:
-        counts = self.svc.counts_by_level
-        parts = [f'{len(self.model.rows)} shown']
-        for lv in (LogLevel.WARN, LogLevel.ERROR, LogLevel.FATAL):
-            n = counts.get(lv, 0)
-            if n:
-                parts.append(f'{n} {lv.name}')
-        if self.pause.isChecked():
-            parts.append('PAUSED')
-        self.counts.setText(' · '.join(parts))
-
-    def _show_detail(self, current, _prev) -> None:
-        r = current.data(RecordRole) if current.isValid() else None
-        if r is None:
-            return
-        loc = f'{r.file}:{r.line} in {r.function}' if r.file else ''
-        self.detail.setPlainText(f'[{r.level.name}] [{r.node}] {r.stamp:.3f}\n{loc}\n\n'
-                                 f'{r.message}')
-
-    def _menu(self, pos) -> None:
-        r = self.view.indexAt(pos).data(RecordRole)
-        if r is None:
-            return
-        menu = QMenu(self)
-        menu.addAction('Copy message', lambda: copy_to_clipboard(r.message))
-        menu.addAction(f'Only {r.node}', lambda: self._only_node(r.node))
-        menu.addAction(f'Parameters of {r.node}', lambda: self.page.ctx.navigate(
-            'params', 'node', r.node if r.node.startswith('/') else '/' + r.node))
-        menu.exec(self.view.viewport().mapToGlobal(pos))
-
-    def _only_node(self, node: str) -> None:
-        for i in range(self.nodes.model().rowCount()):
-            it = self.nodes.model().item(i)
-            it.setCheckState(Qt.Checked if it.text() == node else Qt.Unchecked)
-        self._refilter()
-
-    def _clear(self) -> None:
-        self.svc.clear()
-        self.model.set_records([])
-        self._update_counts()
-
-    def _export(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(
-            self, 'Export logs', os.path.expanduser(f'~/rosout_{time.strftime("%Y%m%d_%H%M%S")}'
-                                                    '.log'), 'Log (*.log *.txt);;JSONL (*.jsonl)')
-        if path:
-            n = self.svc.export(path, list(self.model.rows))
-            self.page.message(f'{n} records exported to {path}')
 
 
 class DiagnosticsTab(QWidget):

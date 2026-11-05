@@ -31,17 +31,23 @@ frames, then jump to the right page.
 
 1. Open **Launch** and select the example profile **UR cell (mock hardware)**.
 2. Check the arguments. Each one has a typed widget (choice, bool, string, number).
-   On Humble the mock option is called `use_fake_hardware`; on newer distros it is
-   `use_mock_hardware`.
+   The checkbox next to the name says whether the argument is **passed**. Unticked
+   arguments are left out of the command line, so the launch file uses its own default.
+   In the example profile `use_fake_hardware` (the Humble name of the mock option) starts
+   unticked: tick it on Humble, and untick `use_mock_hardware` there. In your own profiles,
+   write `use_default: true` for the arguments that should start unticked (see
+   [Configuration](configuration.md#launch-profiles)).
 3. The command line below the form shows exactly what will run. Click **Copy** to use
    it in a terminal.
 4. Click **Start**. The output appears live, and the profile shows `[running]`.
 
 **Stop** sends SIGINT, then SIGTERM and SIGKILL if the process does not exit within the
 profile's timeouts. Afterwards the page checks for leftover child processes, and
-**Kill leftovers** removes them. **Save preset…** stores the current argument values.
-**New…** creates a profile and can import the arguments of a launch file
-(`ros2 launch --show-args`). Scenarios start several profiles in order and wait for a
+**Kill leftovers** removes them. **Save preset…** stores the current argument values,
+including which ones are not passed. **New…** creates a profile and can import the
+arguments of a launch file (`ros2 launch --show-args`). Arguments whose default is a
+launch expression (for example `LocalVar('FindPackageShare(...)')`) are imported with
+`use_default: true`. Scenarios start several profiles in order and wait for a
 node or service between steps.
 
 When you close the window while processes are running, the dashboard asks whether to
@@ -115,9 +121,23 @@ are highlighted. **Degrees** switches the units. The right side summarises the U
 
 ![TF page](images/tf.png)
 
-**TF** shows the frame tree with publishing rates and the age of the last update.
-Problems are listed below the tree: multiple parents or roots, loops, and stale frames.
-To start an echo, pick the target and source frames and a format: quaternion, RPY in
+**TF** opens on the **Graph** tab: the frame tree drawn from the root down, like
+`view_frames`, but live. Each arrow goes from parent to child and shows the publishing
+rate; static transforms are dashed and grey, frames with problems have a red border, and
+a parent that was never received has a dashed border. Hover a frame for its parent, rate
+and last update.
+
+- **Click** a frame to make it the echo *source*.
+- **Double-click** it to echo it in its parent frame.
+- **Right-click** to set it as target or source, or to echo it in the current target.
+- Zoom with the wheel and drag to pan. **Fit** shows the whole tree. **Export…** writes
+  PNG, SVG or DOT. Type a frame name in the filter and press Enter to find it.
+
+![TF tree tab](images/tf_tree.png)
+
+The **Tree** tab lists the same frames as text, with rate, age of the last update and
+kind. Problems are listed below: multiple parents or roots, loops, and stale frames.
+To echo a transform, pick the target and source frames and a format: quaternion, RPY in
 radians or degrees, or a 4×4 SE(3) matrix. **Swap** inverts the transform.
 
 ## Tutorial 7: switch controllers
@@ -152,10 +172,46 @@ SVG or DOT.
 
 ![Logs](images/logs.png)
 
-The **Logs** tab collects `/rosout`. Filter it by minimum level, by node (multi-select)
-and by regex. You can pause, follow and export it. The **Diagnostics** tab groups
-`/diagnostics` statuses by name prefix (`prefix: item`) and keeps a short history for each status. **Lifecycle**
-lists managed nodes and triggers their transitions.
+The **Logs** tab is a `/rosout` console inspired by
+[swri_console](https://github.com/swri-robotics/swri_console).
+
+**Loggers (left).** Every logger seen on `/rosout` appears in a tree: a node's logger
+(`controller_manager`) and its child loggers (`controller_manager.resource_manager`).
+The counts include the children. Select one or more loggers (Ctrl/Shift-click) to show
+only their messages, children included. **All** clears the selection.
+
+**Logger levels.** Right-click loggers and choose **Set logger level** → DEBUG, INFO,
+WARN, ERROR or FATAL. The *Level* column shows the level set on each logger, or
+*inherit* when it follows its parent. In the screenshot `controller_manager` was set to
+DEBUG, and its debug messages appear at once. Setting a node's logger also changes its
+child loggers that have no level of their own. **Set level of a child logger…** sets a
+child logger that has not logged anything yet.
+
+This uses the `get_logger_levels`/`set_logger_levels` services, which exist from ROS 2
+Iron and only in nodes created with `enable_logger_service` (`rclcpp::NodeOptions()
+.enable_logger_service(true)`, or `Node(..., enable_logger_service=True)` in Python).
+`ros2_control` nodes have them on Jazzy and newer: the controller manager and every
+controller of the UR cell. When a node does not offer them, the menu says why. On Humble
+the services do not exist, and the child loggers of Python nodes do not publish to
+`/rosout`.
+
+**Messages (right).**
+
+- Severity checkboxes (Debug is hidden by default).
+- **Include** and **Exclude** filters on the message text, plain or **Regex**.
+- **Time**: time of day, date and time, relative to the first message, or ROS stamp.
+- **Columns**: logger, location (`file:line`), function. **Colors** colours rows by
+  severity. Right-click a logger and choose **Color…** to give its messages a background.
+- **Follow** keeps the newest message visible. **Pause** freezes the list (messages are
+  still collected).
+- Select rows and press Ctrl+C to copy them. Right-click for *copy with location*,
+  *only this logger*, *exclude messages like this*, and the logger level.
+- **Save…** writes the shown messages as text or JSON lines. **Load…** reads them back,
+  or reads `/rosout` from a rosbag2 (folder, `.mcap` or `.db3`).
+
+The **Diagnostics** tab groups `/diagnostics` statuses by name prefix (`prefix: item`)
+and keeps a short history for each status. **Lifecycle nodes** lists managed nodes and
+triggers their transitions.
 
 ## Tutorial 10: health
 

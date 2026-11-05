@@ -153,6 +153,40 @@ def test_tf_tree_and_echo(window, qtbot):
     page.fmt.setCurrentIndex(3)      # SE(3)
     assert page.out.toPlainText().count('\n') >= 4
     page._stop_echo()
+    # Graph view: one box per frame, click selects the source, double-click echoes.
+    pump(qtbot, lambda: {'world', 'tool0'} <= set(page.graph.boxes))
+    page.graph.frame_clicked.emit('tool0')
+    assert page.source.currentText() == 'tool0'
+    page._echo_from_parent('tool0')
+    pump(qtbot, lambda: page.out.toPlainText().startswith('base_link <- tool0'))
+    assert page.target.currentText() == page._parent_of('tool0')
+    page._stop_echo()
+
+
+def test_tf_graph_layout_and_export(tmp_path, qtbot):
+    from ros2_robot_dashboard.adapters.qt.widgets.tf_graph import TfGraphView, tree_layout
+    from ros2_robot_dashboard.core.domain.tf import FrameInfo, TfTreeSnapshot
+    frames = (FrameInfo('base', '', True, 0.0, 0.0),
+              FrameInfo('a', 'base', False, 50.0, 0.0), FrameInfo('b', 'base', True, 0.0, 0.0),
+              FrameInfo('a1', 'a', False, 50.0, 0.0), FrameInfo('x', 'missing', True, 0.0, 0.0),
+              FrameInfo('l1', 'l2', False, 1.0, 0.0), FrameInfo('l2', 'l1', False, 1.0, 0.0))
+    snap = TfTreeSnapshot(frames)
+    pos = tree_layout(snap, {})
+    assert pos['base'][1] == 0 and pos['a'][1] == 1 and pos['a1'][1] == 2
+    assert pos['a'][0] < pos['b'][0]                       # siblings left to right
+    assert min(pos['a'][0], pos['b'][0]) < pos['base'][0] < max(pos['a'][0], pos['b'][0])
+    assert pos['missing'][1] == 0 and pos['x'][1] == 1      # unknown parent becomes a root
+    assert {'l1', 'l2'} <= set(pos)                          # loops are still drawn
+    view = TfGraphView()
+    qtbot.addWidget(view)
+    view.set_snapshot(snap)
+    assert set(view.boxes) == {'base', 'a', 'b', 'a1', 'x', 'missing', 'l1', 'l2'}
+    assert view.boxes['missing'].missing
+    for ext in ('png', 'svg', 'dot'):
+        out = tmp_path / f'tf.{ext}'
+        view.export(str(out))
+        assert out.stat().st_size > 0
+    assert '"base" -> "a"' in (tmp_path / 'tf.dot').read_text()
 
 
 def test_robot_joints_model_pose(window, qtbot):
@@ -196,6 +230,50 @@ def test_diagnostics_logs_lifecycle(window, qtbot):
     pump(qtbot, lambda: page.diags.tree.topLevelItemCount() > 0)
     pump(qtbot, lambda: any(n.node == '/test/dummy_lifecycle'
                             for n in page.lifecycle.model.rows), 15000)
+
+
+def test_logs_console(window, qtbot, dummy_system, tmp_path):
+    from ros2_robot_dashboard.adapters.qt.models.log_model import COL_TIME
+    from ros2_robot_dashboard.core.domain.logs import LogLevel
+    window.navigate('diagnostics')
+    tab = window._pages['diagnostics'].logs
+    pump(qtbot, lambda: 'test.dummy_logger' in tab.tree.items, 15000)
+    # Select one logger: only its messages (and its children's) are shown.
+    tab.select_loggers(['test.dummy_logger'])
+    pump(qtbot, lambda: tab.model.rows and all(
+        r.logger_name.startswith('test.dummy_logger') for r in tab.model.rows))
+    # Severity checkboxes and exclude filter.
+    tab.levels[LogLevel.INFO].setChecked(False)
+    assert not any(r.level == LogLevel.INFO for r in tab.model.rows)
+    tab.levels[LogLevel.INFO].setChecked(True)
+    tab.exclude.setText('parent')
+    assert tab.model.rows is not None
+    assert not any('parent' in r.message for r in tab.model.rows)
+    tab.exclude.setText('')
+    tab.time_fmt.setCurrentIndex(tab.time_fmt.findData('relative'))
+    assert tab.model.index(0, COL_TIME).data()[0] in '+-'
+    tab.view.selectRow(0)
+    tab.copy_selected(True)
+    # Logger levels (Iron and newer only).
+    child = 'test.dummy_logger.worker'
+    if dummy_system.logger.has_logger_service:
+        tab.levels[LogLevel.DEBUG].setChecked(True)
+        pump(qtbot, lambda: child in tab.tree.items, 10000)
+        pump(qtbot, lambda: tab.svc.level_service_problem('/test/dummy_logger') == '', 10000)
+        tab.set_level([child], LogLevel.DEBUG)
+        pump(qtbot, lambda: any('child debug' in r.message for r in tab.model.rows), 10000)
+        pump(qtbot, lambda: tab.tree.levels.get(child) == LogLevel.DEBUG, 10000)
+        assert tab.tree.items[child].text(2) == 'DEBUG'
+        tab.set_level([child], LogLevel.INFO)
+        pump(qtbot, lambda: tab.tree.levels.get(child) == LogLevel.INFO, 10000)
+        tab.levels[LogLevel.DEBUG].setChecked(False)
+    # Save the shown messages and load them back.
+    path = str(tmp_path / 'logs.jsonl')
+    n = tab.svc.export(path, list(tab.model.rows))
+    before = len(tab.svc.records())
+    tab.load(path)
+    pump(qtbot, lambda: len(tab.svc.records()) >= min(before + n, tab.svc._buffer.maxlen))
+    tab.tree.clearSelection()
 
 
 def test_graph_layout_and_export(window, qtbot, tmp_path):
@@ -280,6 +358,27 @@ def test_launch_page_start_stop_demo_profile(window, qtbot, runtime, tmp_path):
     page.select_profile('sleeper')
     page.select_profile('sleeper')            # selecting twice must keep it current
     assert page.current == 'sleeper'
+    # Arguments: unticked ones are not passed (use_default: true starts unticked).
+    from ros2_robot_dashboard.core.domain.process import ArgType, LaunchArg
+    prof2 = ProcessProfile('argsdemo', 'Args demo', 'echo hello', 'args', args=(
+        LaunchArg('a', ArgType.STRING, 'x'),
+        LaunchArg('b', ArgType.INT, 3, use_default=True)))
+    runtime.launch.save_profile(prof2, str(tmp_path / 'argsdemo.yaml'))
+    runtime.launch.reload()
+    pump(qtbot, lambda: any(page.list.item(i).data(0x0100) == 'argsdemo'
+                            for i in range(page.list.count())))
+    page.select_profile('argsdemo')
+    form = page.form
+    assert form.passed['a'].isChecked() and not form.passed['b'].isChecked()
+    assert not form.widgets['b'].isEnabled()
+    assert page.preview.text().endswith("hello 'a:=x'") or page.preview.text().endswith(
+        'hello a:=x')
+    form.passed['b'].setChecked(True)
+    assert page.preview.text().endswith('b:=3')
+    form.passed['a'].setChecked(False)
+    assert 'a:=' not in page.preview.text()
+    assert form.values() == {'a': None, 'b': 3}
+    page.select_profile('sleeper')
     page._start()
     pump(qtbot, lambda: runtime.launch.status('sleeper').state.value == 'running')
     page._stop()

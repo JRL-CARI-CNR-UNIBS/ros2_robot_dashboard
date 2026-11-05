@@ -2,6 +2,18 @@
 Changelog for package ros2_robot_dashboard
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* TF: live graphical tree (Graph tab) with rates, static and problem frames; click,
+  double-click and context menu to drive the echo; export PNG/SVG/DOT.
+* Launch: per-argument "pass" checkbox; ``use_default: true`` in profiles leaves an
+  argument to the launch file default; ``null`` in presets; substitution defaults
+  imported from ``--show-args`` are not passed.
+* Logs: new console in the style of swri_console: logger tree with child loggers and
+  counts, logger levels read and set at runtime (``get/set_logger_levels``, Iron and
+  newer), severity checkboxes, include/exclude filters, time formats, optional columns,
+  logger colors, copy, save/load as text or JSONL and loading ``/rosout`` from rosbag2.
+
 0.1.0 (2026-11-05)
 ------------------
 First release.

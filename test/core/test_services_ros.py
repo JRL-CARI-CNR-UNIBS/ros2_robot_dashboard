@@ -241,6 +241,89 @@ def test_logs_and_diagnostics(runtime, recorder):
     assert ('temp', '40') in items['dummy: motor'].values
 
 
+def test_logger_names_owner_and_levels(runtime, dummy_system):
+    logs = runtime.logs
+    child = 'test.dummy_logger.worker'
+    assert wait_until(lambda: logs.records(loggers=['test.dummy_logger'], text='parent info'),
+                      10)
+    assert wait_until(lambda: logs.owner_node(child) == '/test/dummy_logger', 10)
+    if not dummy_system.logger.has_logger_service:
+        # Humble: no logger services, and rclpy child loggers do not reach /rosout.
+        assert 'Iron' in logs.level_service_problem('/test/dummy_logger')
+        return
+    assert wait_until(lambda: logs.records(loggers=[child], text='child info'), 10)
+    # Selecting the parent logger also selects its children.
+    assert logs.records(loggers=['test.dummy_logger'], text='child info')
+    assert child in logs.loggers()
+    assert 'enable_logger_service' in logs.level_service_problem('/test/dummy_topics')
+    assert wait_until(lambda: logs.level_service_problem('/test/dummy_logger') == '', 10)
+    assert logs.set_levels('/test/dummy_logger', {child: LogLevel.INFO}).result(5) == {child: ''}
+    time.sleep(0.5)                                   # let pending messages arrive
+    mark = max((r.seq for r in logs.records()), default=0)
+
+    def new_debug(text):
+        return [r for r in logs.records(text=text) if r.seq > mark]
+
+    res = logs.set_levels('/test/dummy_logger', {child: LogLevel.DEBUG}).result(5)
+    assert res == {child: ''}
+    assert wait_until(lambda: new_debug('child debug'), 10)
+    assert not new_debug('parent debug')              # the parent keeps its level
+    levels = logs.get_levels('/test/dummy_logger', [child]).result(5)
+    assert levels[child] == LogLevel.DEBUG
+    runtime.safety.set_read_only(True)
+    try:
+        with pytest.raises(ReadOnlyError):
+            logs.set_levels('/test/dummy_logger', {child: LogLevel.INFO}).result(5)
+    finally:
+        runtime.safety.set_read_only(False)
+    assert logs.set_levels('/test/dummy_logger', {child: LogLevel.INFO}).result(5) == {child: ''}
+
+
+def test_log_export_and_load(runtime, tmp_path):
+    from ros2_robot_dashboard.core.domain.logs import LogRecord
+    logs = runtime.logs
+    recs = [LogRecord(seq=0, stamp=1700000000.0 + i, level=LogLevel.WARN, node='/a/b',
+                      message=f'saved {i}\nsecond line', file='x.cpp', line=i,
+                      logger='a.b.sub') for i in range(3)]
+    for ext in ('log', 'jsonl'):
+        path = str(tmp_path / f'out.{ext}')
+        assert logs.export(path, recs) == 3
+        before = len(logs.records(text='saved 2'))
+        assert logs.load(path).result(10) == 3
+        loaded = logs.records(text='saved 2')
+        assert len(loaded) == before + 1
+        r = loaded[-1]
+        assert r.logger_name == 'a.b.sub' and r.level == LogLevel.WARN
+        assert r.message == 'saved 2\nsecond line' and r.line == 2
+        assert abs(r.stamp - 1700000002.0) < 1e-3
+
+
+def test_log_load_from_bag(runtime, tmp_path):
+    import rosbag2_py
+    from rcl_interfaces.msg import Log
+    from rclpy.serialization import serialize_message
+    uri = str(tmp_path / 'bag')
+    writer = rosbag2_py.SequentialWriter()
+    writer.open(rosbag2_py.StorageOptions(uri=uri, storage_id='sqlite3'),
+                rosbag2_py.ConverterOptions('cdr', 'cdr'))
+    meta = dict(name='/rosout', type='rcl_interfaces/msg/Log', serialization_format='cdr')
+    try:
+        topic = rosbag2_py.TopicMetadata(id=0, **meta)        # Jazzy and newer
+    except TypeError:
+        topic = rosbag2_py.TopicMetadata(**meta)              # Humble
+    writer.create_topic(topic)
+    for i in range(4):
+        msg = Log(level=40, name='bagged.node', msg=f'from bag {i}', file='f.py',
+                  function='fn', line=i)
+        msg.stamp.sec = 1700000100 + i
+        writer.write('/rosout', serialize_message(msg), (1700000100 + i) * 10 ** 9)
+    del writer
+    assert runtime.logs.load(uri).result(20) == 4
+    got = runtime.logs.records(loggers=['bagged.node'])
+    assert [r.message for r in got][-4:] == [f'from bag {i}' for i in range(4)]
+    assert got[-1].level == LogLevel.ERROR
+
+
 # --------------------------------------------------------------------------- robot
 
 def test_robot_state_and_model(runtime, recorder):

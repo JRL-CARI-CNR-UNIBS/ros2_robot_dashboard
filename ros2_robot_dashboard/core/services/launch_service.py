@@ -8,6 +8,7 @@ and any directory listed in ``launch.profile_dirs``.
 from __future__ import annotations
 
 import collections
+import dataclasses
 import glob
 import os
 import shlex
@@ -79,11 +80,11 @@ def _profile_from_dict(p: dict, origin: str) -> ProcessProfile:
         arg = LaunchArg(name=str(a['name']), type=atype, default=a.get('default'),
                         description=a.get('description', ''),
                         choices=tuple(str(c) for c in a.get('choices', []) or []),
-                        enabled_if=a.get('enabled_if', ''), required=bool(a.get('required',
-                                                                                False)))
+                        enabled_if=a.get('enabled_if', ''),
+                        required=bool(a.get('required', False)),
+                        use_default=bool(a.get('use_default', False)))
         if arg.default is not None:
-            arg = LaunchArg(arg.name, arg.type, arg.parse(arg.default), arg.description,
-                            arg.choices, arg.enabled_if, arg.required)
+            arg = dataclasses.replace(arg, default=arg.parse(arg.default))
         args.append(arg)
     names = {a.name for a in args}
     for a in args:
@@ -126,6 +127,10 @@ def profile_to_dict(p: ProcessProfile) -> dict:
                 ad['choices'] = list(a.choices)
             if a.enabled_if:
                 ad['enabled_if'] = a.enabled_if
+            if a.required:
+                ad['required'] = True
+            if a.use_default:
+                ad['use_default'] = True
             d['args'].append(ad)
     if p.presets:
         d['presets'] = [{'name': pr.name, 'values': dict(pr.values)} for pr in p.presets]

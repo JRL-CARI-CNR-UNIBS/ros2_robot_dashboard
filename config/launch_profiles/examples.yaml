@@ -19,10 +19,12 @@ profiles:
         type: bool
         default: true
         description: Use mock hardware (Jazzy and newer)
+      # use_default: not passed unless ticked in the form; the launch file default is used.
       - name: use_fake_hardware
         type: bool
         default: true
-        description: Use mock hardware (Humble name of the same option)
+        use_default: true
+        description: Use mock hardware (Humble name of the same option; tick it on Humble)
       - name: launch_rviz
         type: bool
         default: false

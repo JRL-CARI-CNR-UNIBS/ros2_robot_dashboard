@@ -100,6 +100,9 @@ profiles:
         type: choice
         choices: [left, right]
         default: left
+      - name: controllers_file
+        type: string
+        use_default: true           # not passed unless ticked: the launch file default is used
     presets:
       - name: Real robot
         values: { sim: false, robot_ip: 192.168.1.10 }
@@ -121,8 +124,15 @@ scenarios:
         wait_s: 2
 ```
 
-Arguments are passed as `name:=value`. Disabled arguments are not passed, and neither
-are empty values, except for string arguments. The Launch page's **New…** dialog writes this file for you. It
+Arguments are passed as `name:=value`. These are not passed, so the launch file uses its
+own default:
+
+- arguments unticked in the form; `use_default: true` makes an argument start unticked;
+- arguments disabled by `enabled_if`;
+- empty values, except for string arguments.
+
+In presets, a value of `null` means "not passed". Arguments that a preset does not
+mention keep the profile's default state. The Launch page's **New…** dialog writes this file for you. It
 can also import the arguments of a launch file.
 
 ## Health profiles

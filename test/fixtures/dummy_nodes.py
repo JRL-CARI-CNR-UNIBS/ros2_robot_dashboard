@@ -324,6 +324,33 @@ class InterfacesNode(Node):
         return self._fib.Result(sequence=seq)
 
 
+class LoggerNode(Node):
+    """/test/dummy_logger: logs at every level from its logger and a child logger.
+
+    Created with ``enable_logger_service`` where available (Iron and newer).
+    """
+
+    def __init__(self, context):
+        try:
+            super().__init__('dummy_logger', namespace='/test', context=context,
+                             enable_logger_service=True)
+            self.has_logger_service = True
+        except TypeError:            # Humble: no logger service
+            super().__init__('dummy_logger', namespace='/test', context=context)
+            self.has_logger_service = False
+        self.child = self.get_logger().get_child('worker')
+        self.count = 0
+        self.create_timer(0.2, self._tick)
+
+    def _tick(self):
+        self.count += 1
+        log = self.get_logger()
+        log.debug(f'parent debug {self.count}')
+        log.info(f'parent info {self.count}')
+        self.child.debug(f'child debug {self.count}')
+        self.child.info(f'child info {self.count}')
+
+
 class DummySystem:
     """Starts all fixture nodes in a separate context and executor thread."""
 
@@ -334,7 +361,8 @@ class DummySystem:
         self.params = ParamNode(self.context)
         self.topics = TopicsNode(self.context)
         self.cm = FakeControllerManager(self.context)
-        self.nodes = [self.params, self.topics, self.cm]
+        self.logger = LoggerNode(self.context)
+        self.nodes = [self.params, self.topics, self.cm, self.logger]
         try:
             self.interfaces = InterfacesNode(self.context)
             self.nodes.append(self.interfaces)
