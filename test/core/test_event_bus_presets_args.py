@@ -215,6 +215,34 @@ def test_conditions_and_command():
     assert check_condition('not sim', {'sim'}) == ''
 
 
+def test_command_args_are_not_passed_twice_and_empty_values():
+    from ros2_robot_dashboard.core.domain.process import command_args
+    from ros2_robot_dashboard.core.services.launch_service import parse_profiles_yaml
+    text = """
+profiles:
+  - id: cell
+    command: ros2 launch cell cell.launch.py fake:=true  rviz:=false
+    args:
+      - {name: fake, type: string}
+      - {name: rviz, type: bool, default: true}
+      - {name: ip, type: string}
+      - {name: prefix, type: string, default: ''}
+      - {name: cfg, type: string, default: "PathJoinSubstitution('FindPackageShare(pkg=x)')"}
+"""
+    profiles, _s, errors = parse_profiles_yaml(text)
+    assert not errors
+    p = profiles[0]
+    assert command_args(p.command) == {'fake': 'true', 'rviz': 'false'}
+    assert p.arg('cfg').use_default            # substitution default: not passed
+    base = ['ros2', 'launch', 'cell', 'cell.launch.py', 'fake:=true', 'rviz:=false']
+    # fake/rviz are in the command: never repeated; ip has no default: empty not passed;
+    # prefix has an explicit empty default: passed as empty.
+    assert compose_launch_command(p, {'fake': '', 'rviz': True, 'ip': ''}) == base + [
+        'prefix:=']
+    assert compose_launch_command(p, {'ip': '10.0.0.1', 'prefix': None}) == base + [
+        'ip:=10.0.0.1']
+
+
 def test_parse_profiles_yaml_example():
     text = """
 profiles:

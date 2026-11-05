@@ -76,13 +76,22 @@ def refilter(proxy, change) -> None:
 
 # --------------------------------------------------------------------------- dialogs
 
+def is_long_text(text: str, max_chars: int = 300, max_line: int = 110) -> bool:
+    """Too long for a message box label (it would make the dialog huge)."""
+    return len(text) > max_chars or any(len(line) > max_line for line in text.splitlines())
+
+
 def confirm(parent: QWidget, title: str, text: str, details: str = '',
             ok_text: str = 'Confirm', danger: bool = True) -> bool:
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Warning if danger else QMessageBox.Question)
     box.setWindowTitle(title)
     box.setText(text)
-    if details:
+    if details and is_long_text(details):
+        # Long commands go in the expandable details, not in the label.
+        box.setInformativeText(details[:100].splitlines()[0] + '…  (see "Show Details")')
+        box.setDetailedText(details)
+    elif details:
         box.setInformativeText(details)
     ok = box.addButton(ok_text, QMessageBox.AcceptRole)
     box.addButton(QMessageBox.Cancel)
@@ -96,11 +105,16 @@ def show_error(parent: QWidget, title: str, error: Any) -> None:
     box.setIcon(QMessageBox.Critical)
     box.setWindowTitle(title)
     if isinstance(error, BaseException):
-        box.setText(f'{type(error).__name__}: {error}')
-        box.setDetailedText(''.join(traceback.format_exception(type(error), error,
-                                                               error.__traceback__)))
+        text = f'{type(error).__name__}: {error}'
+        details = ''.join(traceback.format_exception(type(error), error, error.__traceback__))
     else:
-        box.setText(str(error))
+        text, details = str(error), ''
+    if is_long_text(text):
+        details = text + ('\n\n' + details if details else '')
+        text = text[:200].splitlines()[0] + '…  (see "Show Details")'
+    box.setText(text)
+    if details:
+        box.setDetailedText(details)
     box.exec()
 
 
@@ -109,6 +123,49 @@ def info(parent: QWidget, title: str, text: str) -> None:
 
 
 # --------------------------------------------------------------------------- widgets
+
+class ElidedLabel(QLabel):
+    """Single-line plain-text label that elides instead of widening the window.
+
+    The full text is in the tooltip.
+    """
+
+    def __init__(self, text: str = '', parent: Optional[QWidget] = None,
+                 mode=Qt.ElideRight):
+        super().__init__(parent)
+        self._full = ''
+        self._mode = mode
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(40)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:       # noqa: N802 - Qt naming
+        self._full = text or ''
+        self.setToolTip(self._full if self._full else '')
+        self._elide()
+
+    def full_text(self) -> str:
+        return self._full
+
+    def sizeHint(self):                          # noqa: N802
+        hint = super().sizeHint()
+        hint.setWidth(min(self.fontMetrics().horizontalAdvance(self._full) + 8, 600))
+        return hint
+
+    def minimumSizeHint(self):                   # noqa: N802
+        hint = super().minimumSizeHint()
+        hint.setWidth(40)
+        return hint
+
+    def resizeEvent(self, event) -> None:        # noqa: N802
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        one_line = self._full.replace('\n', '  ')
+        super().setText(self.fontMetrics().elidedText(one_line, self._mode,
+                                                      max(self.width() - 4, 20)))
+
 
 class FilterEdit(QLineEdit):
     def __init__(self, placeholder: str = 'Filter…', parent: Optional[QWidget] = None):

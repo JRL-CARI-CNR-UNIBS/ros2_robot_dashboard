@@ -378,6 +378,18 @@ def test_launch_page_start_stop_demo_profile(window, qtbot, runtime, tmp_path):
     form.passed['a'].setChecked(False)
     assert 'a:=' not in page.preview.text()
     assert form.values() == {'a': None, 'b': 3}
+    # Hide unticked arguments: the row of 'a' disappears.
+    page.hide_unticked.setChecked(True)
+    assert not form.form.isRowVisible(form.widgets['a'])
+    assert form.form.isRowVisible(form.widgets['b'])
+    assert page.hidden_label.text() == '1 hidden'
+    page.hide_unticked.setChecked(False)
+    assert form.form.isRowVisible(form.widgets['a'])
+    # A very long status message is elided and does not widen the page.
+    width = page.minimumSizeHint().width()
+    page.state_label.setText('x' * 5000)
+    assert page.minimumSizeHint().width() <= width + 5
+    assert page.state_label.toolTip() == 'x' * 5000
     page.select_profile('sleeper')
     page._start()
     pump(qtbot, lambda: runtime.launch.status('sleeper').state.value == 'running')

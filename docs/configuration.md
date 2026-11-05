@@ -127,9 +127,14 @@ scenarios:
 Arguments are passed as `name:=value`. These are not passed, so the launch file uses its
 own default:
 
-- arguments unticked in the form; `use_default: true` makes an argument start unticked;
+- arguments unticked in the form; `use_default: true` makes an argument start unticked
+  (defaults that are launch expressions, such as `PathJoinSubstitution(...)`, count as
+  `use_default: true` unless you say otherwise);
 - arguments disabled by `enabled_if`;
-- empty values, except for string arguments.
+- arguments already written in `command` as `name:=value`: `ros2 launch` keeps the last
+  value, so they are not repeated, and the form shows them as fixed. Remove them from
+  `command` to edit them in the form;
+- empty values of arguments without a default (an explicit `default: ''` is passed).
 
 In presets, a value of `null` means "not passed". Arguments that a preset does not
 mention keep the profile's default state. The Launch page's **New…** dialog writes this file for you. It

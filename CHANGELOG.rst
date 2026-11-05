@@ -9,6 +9,11 @@ Forthcoming
 * Launch: per-argument "pass" checkbox; ``use_default: true`` in profiles leaves an
   argument to the launch file default; ``null`` in presets; substitution defaults
   imported from ``--show-args`` are not passed.
+* Launch: "Hide unticked arguments" option; arguments already written in the command
+  are not passed again; empty values of arguments without a default are not passed
+  (they used to override the command, e.g. ``fake_ur:=``).
+* Long status messages and commands no longer widen the window: labels are elided
+  (full text in the tooltip) and dialogs put long text under "Show Details".
 * Logs: new console in the style of swri_console: logger tree with child loggers and
   counts, logger levels read and set at runtime (``get/set_logger_levels``, Iron and
   newer), severity checkboxes, include/exclude filters, time formats, optional columns,

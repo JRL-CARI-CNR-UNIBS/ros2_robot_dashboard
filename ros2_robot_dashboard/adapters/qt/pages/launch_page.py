@@ -10,15 +10,15 @@ from typing import Optional
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                                QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMenu, QScrollArea, QSpinBox,
-                               QSplitter, QVBoxLayout, QWidget)
+                               QListWidget, QListWidgetItem, QMenu, QScrollArea, QSizePolicy,
+                               QSpinBox, QSplitter, QVBoxLayout, QWidget)
 
 from ....core.domain.events import ProcessOutput, ProcessStateChanged, ProfilesChanged
 from ....core.domain.process import (ArgType, LaunchArg, ProcessProfile, ProcessState,
-                                     StopPolicy)
+                                     StopPolicy, command_args)
 from ....core.processes.launch_args import evaluate_condition
 from .. import theme
-from ..widgets.common import button, confirm, copy_to_clipboard, info
+from ..widgets.common import ElidedLabel, button, confirm, copy_to_clipboard, info
 from ..widgets.terminal import TerminalWidget
 from .base_page import BasePage
 
@@ -42,6 +42,8 @@ class ArgsForm(QWidget):
         self.form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         self.widgets: dict[str, QWidget] = {}
         self.passed: dict[str, QCheckBox] = {}
+        self.in_command: dict[str, str] = {}      # args already written in the command
+        self.hide_unticked = False
         self.profile: Optional[ProcessProfile] = None
 
     def set_profile(self, profile: Optional[ProcessProfile], values: dict) -> None:
@@ -50,8 +52,10 @@ class ArgsForm(QWidget):
         self.widgets = {}
         self.passed = {}
         self.profile = profile
+        self.in_command = {}
         if profile is None:
             return
+        self.in_command = command_args(profile.command)
         if not profile.args:
             self.form.addRow(QLabel('This profile has no arguments.'))
         else:
@@ -69,10 +73,29 @@ class ArgsForm(QWidget):
                    f'\n\nTicked: passed as {a.name}:=<value>.\nUnticked: not passed, the '
                    f'launch file uses its own default' + (f' ({default})' if default else '') +
                    '.').strip()
+            if a.name in self.in_command:
+                tip = (f'Already set in the command: {a.name}:={self.in_command[a.name]}\n'
+                       'Remove it from the command to edit it here.')
             cb.setToolTip(tip)
             w.setToolTip(tip)
             self.form.addRow(cb, w)
         self.set_values(values)
+
+    def set_hide_unticked(self, hide: bool) -> None:
+        self.hide_unticked = hide
+        self._update_visibility()
+
+    def _update_visibility(self) -> None:
+        if self.profile is None:
+            return
+        for a in self.profile.args:
+            visible = not self.hide_unticked or self.passed[a.name].isChecked()
+            self.form.setRowVisible(self.widgets[a.name], visible)
+
+    def hidden_count(self) -> int:
+        if self.profile is None or not self.hide_unticked:
+            return 0
+        return sum(1 for a in self.profile.args if not self.passed[a.name].isChecked())
 
     def _make(self, a: LaunchArg) -> QWidget:
         if a.type == ArgType.BOOL:
@@ -94,7 +117,7 @@ class ArgsForm(QWidget):
             w.currentTextChanged.connect(self._changed)
         else:
             w = QLineEdit()
-            w.setPlaceholderText('(empty: not passed)' if a.default in (None, '') else '')
+            w.setPlaceholderText('(empty: not passed)' if a.default is None else '')
             w.textChanged.connect(self._changed)
         return w
 
@@ -107,7 +130,9 @@ class ArgsForm(QWidget):
             return
         for a in self.profile.args:
             w = self.widgets[a.name]
-            if a.name in values:
+            if a.name in self.in_command:
+                passed, v = False, self.in_command[a.name]
+            elif a.name in values:
                 passed = values[a.name] is not None
                 v = values[a.name] if passed else a.default
             else:
@@ -171,6 +196,7 @@ class ArgsForm(QWidget):
                 out[a.name] = self._widget_value(self.widgets[a.name])
             else:
                 out[a.name] = a.default
+        out.update(self.in_command)
         return out
 
     def _changed(self, *_a) -> None:
@@ -183,8 +209,10 @@ class ArgsForm(QWidget):
         shown = self._shown_values()
         for a in self.profile.args:
             on = not a.enabled_if or evaluate_condition(a.enabled_if, shown, self.profile)
+            on = on and a.name not in self.in_command
             self.passed[a.name].setEnabled(on)
             self.widgets[a.name].setEnabled(on and self.passed[a.name].isChecked())
+        self._update_visibility()
 
 
 class NewProfileDialog(QDialog):
@@ -298,17 +326,28 @@ class LaunchPage(BasePage):
         ll.addLayout(row)
         ll.addWidget(self.errors_label)
 
-        self.header = QLabel('Select a profile')
+        self.header = ElidedLabel('Select a profile')
         self.header.setObjectName('pageTitle')
-        self.state_label = QLabel('')
+        self.state_dot = QLabel('')
+        self.state_label = ElidedLabel('', mode=Qt.ElideRight)
+        self.state_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.desc = QLabel('')
         self.desc.setWordWrap(True)
+        self.desc.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.hide_unticked = QCheckBox('Hide unticked arguments')
+        self.hide_unticked.setToolTip('Show only the arguments that are passed on the command '
+                                      'line')
+        self.hide_unticked.setChecked(str(self.setting('hide_unticked', 'false')) == 'true')
+        self.hide_unticked.toggled.connect(self._hide_unticked_changed)
+        self.hidden_label = QLabel('')
+        self.hidden_label.setObjectName('hint')
         self.preset_combo = QComboBox()
         self.preset_combo.setMinimumWidth(160)
         self.preset_combo.activated.connect(self._apply_preset)
         save_preset = button('Save preset…', self._save_preset)
         defaults = button('Defaults', self._defaults)
         self.form = ArgsForm(self._update_preview)
+        self.form.set_hide_unticked(self.hide_unticked.isChecked())
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.form)
@@ -329,15 +368,17 @@ class LaunchPage(BasePage):
         rl = QVBoxLayout(right_top)
         rl.setContentsMargins(0, 0, 0, 0)
         row = QHBoxLayout()
-        row.addWidget(self.header)
-        row.addStretch(1)
-        row.addWidget(self.state_label)
+        row.addWidget(self.header, 3)
+        row.addWidget(self.state_dot)
+        row.addWidget(self.state_label, 2)
         rl.addLayout(row)
         rl.addWidget(self.desc)
         row = QHBoxLayout()
         for w in (QLabel('Preset'), self.preset_combo, save_preset, defaults):
             row.addWidget(w)
         row.addStretch(1)
+        row.addWidget(self.hidden_label)
+        row.addWidget(self.hide_unticked)
         rl.addLayout(row)
         rl.addWidget(scroll, 1)
         row = QHBoxLayout()
@@ -427,6 +468,7 @@ class LaunchPage(BasePage):
         self._update_header()
 
     def _update_preview(self) -> None:
+        self._update_hidden_label()
         if not self.current:
             return
         try:
@@ -435,6 +477,15 @@ class LaunchPage(BasePage):
             self.preview.setCursorPosition(0)
         except Exception as exc:  # noqa: BLE001
             self.preview.setText(f'error: {exc}')
+
+    def _hide_unticked_changed(self, hide: bool) -> None:
+        self.set_setting('hide_unticked', 'true' if hide else 'false')
+        self.form.set_hide_unticked(hide)
+        self._update_hidden_label()
+
+    def _update_hidden_label(self) -> None:
+        n = self.form.hidden_count()
+        self.hidden_label.setText(f'{n} hidden' if n else '')
 
     def _update_header(self) -> None:
         if not self.current:
@@ -456,7 +507,8 @@ class LaunchPage(BasePage):
         if st.message:
             txt += f'  — {st.message}'
         c = theme.color(STATE_COLOR[st.state]).name()
-        self.state_label.setText(f'<span style="color:{c}">●</span> {txt}')
+        self.state_dot.setText(f'<span style="color:{c}">●</span>')
+        self.state_label.setText(txt)
         active = st.state.is_active
         ro = self.rt.safety.read_only
         self.start_btn.setEnabled(not active and not ro)

@@ -36,7 +36,8 @@ frames, then jump to the right page.
    In the example profile `use_fake_hardware` (the Humble name of the mock option) starts
    unticked: tick it on Humble, and untick `use_mock_hardware` there. In your own profiles,
    write `use_default: true` for the arguments that should start unticked (see
-   [Configuration](configuration.md#launch-profiles)).
+   [Configuration](configuration.md#launch-profiles)). **Hide unticked arguments**
+   shows only the arguments that are passed; the label next to it counts the hidden ones.
 3. The command line below the form shows exactly what will run. Click **Copy** to use
    it in a terminal.
 4. Click **Start**. The output appears live, and the profile shows `[running]`.

@@ -26,7 +26,7 @@ from ..domain.process import (ArgType, LaunchArg, LaunchPreset, ProcessProfile, 
                               ProcessStatus, Scenario, ScenarioStep, StopPolicy,
                               compose_launch_command)
 from ..futures import try_set_exception, try_set_result
-from ..processes.launch_args import check_condition, parse_show_args
+from ..processes.launch_args import check_condition, is_substitution, parse_show_args
 from ..processes.process_runner import ProcessHandle, ProcessRunner
 from ..runtime import BaseService
 
@@ -82,7 +82,8 @@ def _profile_from_dict(p: dict, origin: str) -> ProcessProfile:
                         choices=tuple(str(c) for c in a.get('choices', []) or []),
                         enabled_if=a.get('enabled_if', ''),
                         required=bool(a.get('required', False)),
-                        use_default=bool(a.get('use_default', False)))
+                        # Launch substitutions cannot be passed as text: default to not passed.
+                        use_default=bool(a.get('use_default', is_substitution(a.get('default')))))
         if arg.default is not None:
             arg = dataclasses.replace(arg, default=arg.parse(arg.default))
         args.append(arg)
