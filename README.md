@@ -1,5 +1,7 @@
 # ros2_robot_dashboard
 
+⚠️ UNDER TESTING PHASE 
+
 A robot-agnostic desktop dashboard for ROS 2, written in Python with PySide6 (Qt 6).
 It puts the everyday tools of a robot cell in one window: parameters, topics, services
 and actions, the node graph, TF, robot state, `ros2_control`, diagnostics and logs, a
